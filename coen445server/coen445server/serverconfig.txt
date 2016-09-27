@@ -1,0 +1,5 @@
+name:server0,status:off,ip:127.0.0.1,port:8888
+name:server1,status:off,ip:127.0.0.1,port:8889
+name:server2,status:off,ip:127.0.0.1,port:8890
+name:server3,status:off,ip:127.0.0.1,port:8891
+name:server4,status:off,ip:127.0.0.1,port:8892

@@ -10,5 +10,9 @@
 #include <stdio.h>
 #include <tchar.h>
 #include <winsock2.h>
+#include <fstream>
+#include <string>
+#include <iostream>
+#include <stdlib.h>
 
 #pragma comment(lib,"ws2_32.lib") //Winsock Library
