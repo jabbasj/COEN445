@@ -29,6 +29,7 @@ WSADATA wsa;
 int _tmain(int argc, _TCHAR* argv[])
 {
 	atexit(closeServer);
+	//signal(SIGINT, closeServer);
 
 	slen = sizeof(si_other);
 
@@ -56,6 +57,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		printf("Could not read server list.\n");
 		exit(EXIT_FAILURE);
 	}
+	//return 0; //<- this properly calls "closeServer" and updates the file...??????????????????????
 
 	printf("Reading client list...\n");
 	loadClientsList();
@@ -81,7 +83,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	//keep listening for data
 	while (1)
 	{
-		printf("Waiting for data...");
+		printf("Waiting for data...\n");
 		fflush(stdout);
 
 		//clear the buffer by filling null, it might have previously received data
@@ -93,6 +95,8 @@ int _tmain(int argc, _TCHAR* argv[])
 			printf("recvfrom() failed with error code : %d", WSAGetLastError());
 			exit(EXIT_FAILURE);
 		}
+
+		std::cout << "testfdsfsdf";
 
 		//print details of the client/peer and the data received
 		printf("Received packet from %s:%d\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
@@ -150,7 +154,7 @@ void loadServersList() {
 					// Set off to on
 					line.replace(line.find("off"), std::strlen("off"), "on");
 					output_file << line + "\n";
-
+					
 					// Get next server's port
 					getline(input_file, line);
 					output_file << line + "\n";
@@ -165,8 +169,9 @@ void loadServersList() {
 						getline(input_file, line);
 						NEXT_PORT = std::stoi(line.substr(line.find("port:") + std::strlen("port:"), -1));
 						NEXT_ADDRESS = line.substr(line.find("ip:") + std::strlen("ip:"), line.find(",port") - line.find("ip:") - std::strlen("ip:"));
-						break;
+						output_file << line + "\n";
 					}
+					continue;
 				}
 			}
 			else {
@@ -188,13 +193,13 @@ void closeServer() {
 
 	std::cout << "Terminating...\n";
 
+	//fflush(stdout);
 	closesocket(s);
 	WSACleanup();
 
 	// ACCESS VIOLATION?????
+	
 	/*
-	std::ofstream test("test.txt");
-
 	std::ifstream input_file("serverconfig.txt");
 	std::ofstream output_file("temp.txt");
 
@@ -217,7 +222,8 @@ void closeServer() {
 		std::rename("temp.txt", "serverconfig.txt");
 	}*/
 
-	// Still doesn't work properly WTF?!  cause: recvfrom, but why is this even a problem? How to handle ???
+	// Still doesn't work WTF?!  cause: recvfrom?, but why is this even a problem? How to handle ???
+	
 	FILE *input_file;
 	FILE *output_file;
 
@@ -226,24 +232,31 @@ void closeServer() {
 
 	if (input_file && output_file) {
 
-		char line[1024];
-		while (fgets(line, 1024, input_file) != NULL) {
+		char line[80];
+		while (fgets(line, 80,input_file) != NULL) {
 
 			if (line[0] == '\n') {
 				break;
 			}
+
 			//printf("%s\n", line);
-
 			std::string line_str(line);
+			
+			if (line_str.find("port:") != std::string::npos) {
 
-			std::string port = line_str.substr(line_str.find("port:") + std::strlen("port:"), -1);
-			port.pop_back();
+				std::string port = line_str.substr(line_str.find("port:") + std::strlen("port:"), -1);
+				port.pop_back();
 
-			if (MY_PORT == std::stoi(port)) {
-				line_str.replace(line_str.find("on"), std::strlen("on"), "off");
+				if (MY_PORT == std::stoi(port)) {
+
+					if (line_str.find("on") != std::string::npos) {
+						line_str.replace(line_str.find("on"), std::strlen("on"), "off");
+					}
+				}
+
+				fwrite(line_str.c_str(), sizeof(line_str.c_str()[0]), strlen(line_str.c_str()), output_file);
+				//fclose(output_file); //<- this properly saves the first line in the file... why is the loop not working in atexit?
 			}
-
-			fwrite(line_str.c_str(), sizeof(line_str.c_str()[0]), strlen(line_str.c_str()), output_file);
 		}
 	}
 
@@ -252,6 +265,8 @@ void closeServer() {
 
 	std::remove("serverconfig.txt");
 	std::rename("temp.txt", "serverconfig.txt");
+
+	exit(1);
 }
 
 void loadClientsList() {
