@@ -14,5 +14,8 @@
 #include <iostream>
 #include <stdlib.h>
 #include <signal.h>
+#include <vector>
+#include <future>
+#include <mutex>
 
 #pragma comment(lib,"ws2_32.lib") //Winsock Library
