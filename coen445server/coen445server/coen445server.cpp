@@ -27,7 +27,10 @@ int NEXT_PORT = -1;						//The port of the next known server
 
 std::vector<my_MSG> messages_to_send;
 std::vector<my_MSG> messages_received;
+std::vector<my_MSG> temp;
 std::vector<std::string> clients_serving;
+std::mutex mut_send;
+std::mutex mut_recv;
 
 // My functions
 void initializeConnection();
@@ -35,8 +38,10 @@ void loadServersList();
 void closeServer();
 void loadClientsData();
 void updateClientsData(std::string identifier);
-void communicationHandler();
+
 void clientHandler(sockaddr_in sockaddr, my_MSG MSG);
+void sender();
+void listener();
 
 // Winsock structures
 SOCKET s;
@@ -57,7 +62,8 @@ int _tmain(int argc, _TCHAR* argv[])
 		//TODO: message routing
 		initializeConnection();
 
-		communicationHandler();
+		std::async(listener);
+		sender();
 	}
 	catch (std::exception e) {
 		printf(e.what());
@@ -68,29 +74,50 @@ int _tmain(int argc, _TCHAR* argv[])
 }
 
 
-void communicationHandler() {
+void sender() {
 
 	while (1)
-	{
-		printf("\nSending pending messages...\n");
+	{	
+		if (temp.size() > 0) {
+			printf("\nSending pending messages...\n");
+
+			mut_send.lock();
+			messages_to_send = temp;
+			temp.clear();
+			mut_send.unlock();
+		}
 		while (messages_to_send.size() > 0) {
 
-			my_MSG msg_to_send = messages_to_send.back();
-			//TODO: reply to my_MSG's addr/port
+			my_MSG msg_to_send = messages_to_send.front();
+
+			//reply to sender
+			std::wstring stemp = std::wstring(msg_to_send.addr.begin(), msg_to_send.addr.end());
+			LPCWSTR sw = stemp.c_str();
+			InetPton(AF_INET, sw, &si_other.sin_addr);
+			si_other.sin_port = msg_to_send.port;
+
 			if (sendto(s, (char*) &msg_to_send, BUFLEN, 0, (struct sockaddr*) &si_other, slen) == SOCKET_ERROR)
 			{
 				printf("sendto() failed with error code : %d\n", WSAGetLastError());
 				exit(EXIT_FAILURE);
 			}
 
-			messages_to_send.pop_back();
+			messages_to_send.erase(messages_to_send.begin());
+			
 		}
 
+	}
+
+}
+
+void listener() {
+
+	while (1) {
 		printf("Waiting for data...\n");
 		fflush(stdout);
 
 		//clear the buffer by filling null, it might have previously received data
-		//memset(buf, '\0', BUFLEN);
+		memset(buf, '\0', BUFLEN);
 
 		//try to receive some data, timeouts after 2 seconds
 		if ((recv_len = recvfrom(s, buf, BUFLEN, 0, (struct sockaddr *) &si_other, &slen)) == SOCKET_ERROR)
@@ -105,6 +132,8 @@ void communicationHandler() {
 			my_MSG received_packet; //Re-make the struct
 			memcpy(&received_packet, buf, sizeof(received_packet));
 
+			if (received_packet.name == "" || received_packet.addr == "") continue;
+
 			for (int i = 0; i < clients_serving.size(); i++) {
 				if (received_packet.name == clients_serving[i]) {
 					new_client = false;
@@ -113,14 +142,18 @@ void communicationHandler() {
 			}
 
 			if (!new_client) {
+				mut_recv.lock();
 				messages_received.push_back(received_packet);
+				mut_recv.unlock();
 			}
 			else {
 				//TODO: registration
 				//new client
-				if (clients_serving.size() < 5 && CLIENTS_REGISTERED_COUNT < 5) {
+				if (clients_serving.size() < 100 && CLIENTS_REGISTERED_COUNT < 5) {
 					clients_serving.push_back(received_packet.name);
+					mut_recv.lock();
 					messages_received.push_back(received_packet);
+					mut_recv.unlock();
 					std::async(clientHandler, si_other, received_packet);
 				}
 				else {
@@ -128,9 +161,7 @@ void communicationHandler() {
 				}
 			}
 		}
-
 	}
-
 }
 
 //TODO: save client data to file
@@ -143,27 +174,35 @@ void clientHandler(sockaddr_in sockaddr, my_MSG first_msg) {
 
 		bool new_msg = false;
 
-		//TODO: add mutex lock
-		//mutex lock
-		for (int i = 0; i < messages_received.size(); i++) {
-			if (messages_received[i].name == first_msg.name) {
-				recv_msg = messages_received[i];
-				messages_received.erase(messages_received.begin() + i);
+		mut_recv.lock();
+		std::vector<my_MSG>::iterator i = messages_received.begin();
+		while (i != messages_received.end())
+		{
+			if (i->name == first_msg.name) {
+				recv_msg = *i;
+				messages_received.erase(i);
 				new_msg = true;
 				break;
 			}
+			++i;
 		}
-		//mutex unlock
+		mut_recv.unlock();
+
 
 		if (new_msg) {
 			//handle new msg
 
 			//print details of the client/peer and the data received
-			printf("Received packet from %s:%d\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+			printf("Received packet from %s:%d\n", inet_ntoa(sockaddr.sin_addr), ntohs(sockaddr.sin_port));
 			printMsg(&recv_msg);
 
 			to_send = new my_MSG(recv_msg);
-			messages_to_send.push_back(*to_send);
+			to_send->addr = inet_ntoa(*(struct in_addr *)&sockaddr.sin_addr);
+			to_send->port = sockaddr.sin_port;
+
+			mut_send.lock();
+			temp.push_back(*to_send);
+			mut_send.unlock();
 		}
 	}
 }

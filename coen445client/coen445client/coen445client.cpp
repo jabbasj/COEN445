@@ -21,13 +21,14 @@ void printMsg(my_MSG* MSGPacket);
 
 std::string SERVER_ADDRESS = "";
 int SERVER_PORT = -1;
+int MY_PORT = -1;
 
 // My functions
 void loadServersList();
 void initializeConnection();
 void communicationHandler();
 
-struct sockaddr_in si_other;
+struct sockaddr_in client, si_other;
 int s, slen = sizeof(si_other);
 char buf[BUFLEN];
 char message[BUFLEN];
@@ -56,45 +57,49 @@ int _tmain(int argc, _TCHAR* argv[])
 void communicationHandler() {
 
 	int count = 0;
+	fflush(stdout);
 
 	my_MSG msgPacket;
 
+	printf("Enter name:\n");
+	std::cin >> msgPacket.name;
 	//start communication
 	while (1)
 	{
 		//TODO: add new name, registration requests, etc...
-		//printf("Enter message : ");
-		//gets_s(message);
 
 		//clear the buffer by filling null, it might have previously received data
 		memset(buf, '\0', BUFLEN);
 
 		msgPacket.message = std::to_string(count++).c_str();
-		msgPacket.name = "me";
 		msgPacket.addr = "my_addr";
-		msgPacket.port = 8888;
+		msgPacket.port = MY_PORT;
 
 		//send the message
 		if (sendto(s, (char*)&msgPacket, BUFLEN, 0, (struct sockaddr *) &si_other, slen) == SOCKET_ERROR)
 		{
 			printf("sendto() failed with error code : %d", WSAGetLastError());
 			exit(EXIT_FAILURE);
-		}	
+		}
 
+		if (MY_PORT == -1) {
+			MY_PORT = si_other.sin_port;
+		}
 
 		//try to receive some data, this is a blocking call
 		if (recvfrom(s, buf, BUFLEN, 0, (struct sockaddr *) &si_other, &slen) == SOCKET_ERROR)
 		{
-			printf("recvfrom() failed with error code : %d", WSAGetLastError());
-			exit(EXIT_FAILURE);
+			printf("recvfrom() failed with error code : %d\n", WSAGetLastError());
+			//exit(EXIT_FAILURE);
 		}
-
-		//receive a reply and print it
-		//print details of the client/peer and the data received
-		my_MSG received_packet; //Re-make the struct
-		memcpy(&received_packet, buf, sizeof(received_packet));
-		printf("Received packet from %s:%d\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
-		printMsg(&received_packet);
+		else {
+			//receive a reply and print it
+			//print details of the client/peer and the data received
+			my_MSG received_packet; //Re-make the struct
+			memcpy(&received_packet, buf, sizeof(received_packet));
+			printf("Received packet from %s:%d\n", inet_ntoa(si_other.sin_addr), ntohs(si_other.sin_port));
+			printMsg(&received_packet);
+		}
 	}
 
 }
@@ -129,6 +134,10 @@ void initializeConnection() {
 	si_other.sin_family = AF_INET;
 	si_other.sin_port = htons(SERVER_PORT);
 	si_other.sin_addr.S_un.S_addr = inet_addr(SERVER_ADDRESS.c_str());
+
+
+	int iTimeout = 3000;
+	setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&iTimeout, sizeof(iTimeout));
 }
 
 
