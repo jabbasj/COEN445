@@ -12,17 +12,41 @@ struct my_MSG
 	int			SERVER_MSG = 0;
 };
 
+struct friend_data {
+	std::string name = "";
+	std::string addr = "";
+	int port = -1;
+};
+
+struct client_status
+{
+	std::string MY_NAME = "";
+	std::string SERVER_ADDRESS = "";
+	int			SERVER_PORT = -1;
+	std::string MY_ADDRESS = "";
+	int			MY_PORT = 10000;			// port attempted, increment by 1 until bind works
+	std::vector<friend_data> friends;
+};
+
+
 //wrapper for my_MSG
 class protocol {
 
 public:
-	my_MSG register_me(std::string my_name, std::string IP, int port);
+	protocol(client_status * info) {
+		client_info = info;
+		last_message = getId();
+	}
+
+	my_MSG register_me();
+	my_MSG publish();
 	my_MSG protocol::register_me(my_MSG);
 	my_MSG bye();
 
 private:
 	std::mutex mut_msgs;
 	int last_message;
+	client_status* client_info;
 	std::vector<my_MSG> messages_pending_reply;
 
 	my_MSG replied_to(my_MSG);

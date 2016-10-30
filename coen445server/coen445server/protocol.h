@@ -40,7 +40,6 @@ public:
 		server_info = info;
 		last_message = getId();
 	}
-	protocol() {};
 
 public:
 	my_MSG register_client(my_MSG msg);

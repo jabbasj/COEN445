@@ -1,15 +1,15 @@
 #include "protocol.h"
 
 
-my_MSG protocol::register_me(std::string my_name, std::string IP, int port) {
+my_MSG protocol::register_me() {
 
 	my_MSG answer;
 
 	answer.type = "REGISTER";
 	answer.id = getId();
-	answer.name = my_name;
-	answer.addr = IP;
-	answer.port = port;
+	answer.name = client_info->MY_NAME;
+	answer.addr = client_info->SERVER_ADDRESS;
+	answer.port = client_info->SERVER_PORT;
 	answer.SERVER_MSG = 0;
 
 	newmsg(answer);
@@ -18,7 +18,6 @@ my_MSG protocol::register_me(std::string my_name, std::string IP, int port) {
 }
 
 //try to register to next server
-//todo: fix "return msg"
 my_MSG protocol::register_me(my_MSG msg) {
 
 	my_MSG reply_to = replied_to(msg);
@@ -27,14 +26,37 @@ my_MSG protocol::register_me(my_MSG msg) {
 
 		if (msg.type == "REGISTER-DENIED") {	
 		
-			std::string next_serv = msg.message.substr(0, msg.message.find(":"));
-			std::string next_port = msg.message.substr(msg.message.find(":") + 1, -1);
+			client_info->SERVER_ADDRESS = msg.message.substr(0, msg.message.find(":"));
+			client_info->MY_PORT = stoi(msg.message.substr(msg.message.find(":") + 1, -1));
 
-			return register_me(msg.name, next_serv, stoi(next_port));
+			return register_me();
 		}
 	}
-
 	return reply_to;
+}
+
+my_MSG protocol::publish() {
+
+	my_MSG answer;
+
+	answer.type = "PUBLISH";
+	answer.id = getId();
+	answer.name = client_info->MY_NAME;
+	answer.addr = client_info->SERVER_ADDRESS;
+	answer.port = client_info->SERVER_PORT;
+
+	std::string friends = "";
+
+	for (int i = 0; i < client_info->friends.size(); i++) {
+		friends += client_info->friends[i].name + ",";
+	}
+	friends = friends.substr(0, friends.find_last_of(","));
+
+	answer.message = friends;
+
+	newmsg(answer);
+
+	return answer;
 }
 
 //push message for which we expect reply

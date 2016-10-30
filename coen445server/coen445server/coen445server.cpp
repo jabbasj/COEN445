@@ -1,7 +1,7 @@
 #include "allheaders.h"
 #include "protocol.h"
 
-#define BUFLEN 512
+#define BUFLEN 1024
 
 void printMsg(my_MSG* MSGPacket);
 bool finished = false;
@@ -84,7 +84,7 @@ void sender() {
 			msg_to_send.addr = my_status.MY_ADDRESS;
 			msg_to_send.port = my_status.MY_PORT;
 
-			if (sendto(s, (char*)&msg_to_send, BUFLEN, 0, (struct sockaddr*) &si_send, slen) == SOCKET_ERROR)
+			if (sendto(s, (char*)&msg_to_send, sizeof(msg_to_send), 0, (struct sockaddr*) &si_send, slen) == SOCKET_ERROR)
 			{
 				printf("sendto() failed with error code : %d\n", WSAGetLastError());
 			}
@@ -211,7 +211,7 @@ void registrationHandler(my_MSG received_packet) {
 //Dies after 1 min of idle time
 void clientHandler(sockaddr_in sockaddr, my_MSG first_msg) {
 
-	protocol * protocol_manager = new protocol();
+	protocol * protocol_manager = new protocol(&my_status);
 
 	my_MSG recv_msg;
 	my_MSG * to_send;

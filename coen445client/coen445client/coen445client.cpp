@@ -1,17 +1,11 @@
 #include "allheaders.h"
 #include "protocol.h"
 
-#define BUFLEN 512  //Max length of buffer
+#define BUFLEN 1024  //Max length of buffer
 
 void printMsg(my_MSG* MSGPacket);
 
-// My data
-std::string MY_NAME = "";
-std::string SERVER_ADDRESS = "";
-int			SERVER_PORT = -1;
-std::string MY_ADDRESS = "";
-int			MY_PORT = 10000;			// port attempted, increment by 1 until bind works
-
+client_status client_info;
 protocol *	protocol_manager;
 
 std::vector<my_MSG> messages_to_send;
@@ -44,13 +38,13 @@ WSADATA wsa;
 int _tmain(int argc, _TCHAR* argv[])
 {
 	try {
-		protocol_manager = new protocol();
+		protocol_manager = new protocol(&client_info);
 
 		initializeConnection(); // Initialize winsock, create socket, load server list
 		getMyExternalIP();		// Not used
 
 		printf("\nEnter name:\n");
-		std::cin >> MY_NAME;
+		std::cin >> client_info.MY_NAME;
 		
 		std::async(listener);
 		std::async(sender);
@@ -73,10 +67,10 @@ int _tmain(int argc, _TCHAR* argv[])
 //keeps trying to get registered/find server it's registered to
 //todo: add timeout when all servers full
 void getRegistered() {
-	std::cout << "\nTarget server: " << SERVER_ADDRESS << ":" << SERVER_PORT << "\n";
+	std::cout << "\nTarget server: " << client_info.SERVER_ADDRESS << ":" << client_info.SERVER_PORT << "\n";
 
 	printf("Registering...\n");
-	my_MSG send_this = protocol_manager->register_me(MY_NAME, SERVER_ADDRESS, SERVER_PORT);
+	my_MSG send_this = protocol_manager->register_me();
 	send(send_this);
 
 	while (!registered) {
@@ -88,7 +82,7 @@ void getRegistered() {
 		std::vector<my_MSG>::iterator i = messages_received.begin();
 		while (i != messages_received.end())
 		{
-			if (i->name == MY_NAME) {
+			if (i->name == client_info.MY_NAME) {
 				recv_msg = *i;
 				messages_received.erase(i);
 				new_msg = true;
@@ -102,10 +96,6 @@ void getRegistered() {
 			
 			if (recv_msg.type == "REGISTERED" || recv_msg.type == "ECHO") {
 				registered = true;
-
-				SERVER_ADDRESS = recv_msg.addr;
-				SERVER_PORT = recv_msg.port;
-
 				break;
 			}
 			else {
@@ -123,6 +113,23 @@ void getRegistered() {
 //todo better interface, all use cases
 void myInterface() {
 	getRegistered();
+
+	friend_data my_friend;
+	my_friend.name = "pizza";
+	client_info.friends.push_back(my_friend);
+
+	my_friend.name = "chicken";
+	client_info.friends.push_back(my_friend);
+
+	//crashes if including this 
+	my_friend.name = "soup";
+	client_info.friends.push_back(my_friend);
+	
+	my_MSG pub = protocol_manager->publish();
+
+	char* test = (char*)&pub;
+	my_MSG test_msg = (my_MSG)pub;
+	send(pub);
 
 	while (1) {
 		Sleep(100);
@@ -160,11 +167,11 @@ void sender() {
 			si_send.sin_addr.S_un.S_addr = inet_addr(msg_to_send.addr.c_str());
 			si_send.sin_port = htons(msg_to_send.port);
 
-			msg_to_send.name = MY_NAME;
-			msg_to_send.addr = MY_ADDRESS;
-			msg_to_send.port = MY_PORT;
+			msg_to_send.name = client_info.MY_NAME;
+			msg_to_send.addr = client_info.MY_ADDRESS;
+			msg_to_send.port = client_info.MY_PORT;
 
-			if (sendto(s, (char*)&msg_to_send, BUFLEN, 0, (struct sockaddr*) &si_send, slen) == SOCKET_ERROR)
+			if (sendto(s, (char*)&msg_to_send, sizeof(msg_to_send), 0, (struct sockaddr*) &si_send, slen) == SOCKET_ERROR)
 			{
 				printf("sendto() failed with error code : %d\n", WSAGetLastError());
 			}
@@ -224,9 +231,9 @@ void getMyExternalIP() {
 	char buffer[1024];
 	char *line_p = fgets(buffer, sizeof(buffer), lsofFile_p);
 
-	MY_ADDRESS = line_p;
-	std::cout << "Found: " << MY_ADDRESS;
-	MY_ADDRESS.erase(MY_ADDRESS.find('\n'));
+	client_info.MY_ADDRESS = line_p;
+	std::cout << "Found: " << client_info.MY_ADDRESS;
+	client_info.MY_ADDRESS.erase(client_info.MY_ADDRESS.find('\n'));
 
 	_pclose(lsofFile_p);
 }
@@ -256,7 +263,7 @@ void initializeConnection() {
 
 	//load server addr/port
 	loadServersList();
-	if (SERVER_ADDRESS == "" || SERVER_PORT == -1) {
+	if (client_info.SERVER_ADDRESS == "" || client_info.SERVER_PORT == -1) {
 		printf("Error reading server addr/port\n");
 		exit(EXIT_FAILURE);
 	}
@@ -264,8 +271,8 @@ void initializeConnection() {
 	//setup address structure
 	memset((char *)&si_send, 0, sizeof(si_send));
 	si_send.sin_family = AF_INET;
-	si_send.sin_port = htons(SERVER_PORT);
-	si_send.sin_addr.S_un.S_addr = inet_addr(SERVER_ADDRESS.c_str());
+	si_send.sin_port = htons(client_info.SERVER_PORT);
+	si_send.sin_addr.S_un.S_addr = inet_addr(client_info.SERVER_ADDRESS.c_str());
 
 	//Prepare the sockaddr_in structure
 	client.sin_family = AF_INET;
@@ -275,7 +282,7 @@ void initializeConnection() {
 	int err = SOCKET_ERROR;
 
 	do {
-		client.sin_port = htons(MY_PORT + i);
+		client.sin_port = htons(client_info.MY_PORT + i);
 
 		//Bind
 		if (err = bind(s, (struct sockaddr *)&client, sizeof(client)))
@@ -285,7 +292,7 @@ void initializeConnection() {
 		}
 		
 	} while (err == SOCKET_ERROR);
-	MY_PORT = MY_PORT + i;
+	client_info.MY_PORT = client_info.MY_PORT + i;
 
 	puts("Bind done");
 
@@ -304,8 +311,8 @@ void loadServersList() {
 
 		getline(input_file, line);
 
-		SERVER_PORT = std::stoi(line.substr(line.find("port:") + std::strlen("port:"), -1));
-		SERVER_ADDRESS = line.substr(line.find("ip:") + std::strlen("ip:"), line.find(",port") - line.find("ip:") - std::strlen("ip:"));
+		client_info.SERVER_PORT = std::stoi(line.substr(line.find("port:") + std::strlen("port:"), -1));
+		client_info.SERVER_ADDRESS = line.substr(line.find("ip:") + std::strlen("ip:"), line.find(",port") - line.find("ip:") - std::strlen("ip:"));
 
 		input_file.close();
 	}
