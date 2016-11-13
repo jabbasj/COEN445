@@ -28,7 +28,6 @@ struct server_status
 	int			MY_PORT = -1;						//The port on which to listen for incoming data (server 0)
 	int			NEXT_PORT = -1;						//The port of the next known server
 	std::vector<client_data> clients_registered;
-	std::vector<client_data> clients_online;
 };
 
 
@@ -46,6 +45,13 @@ public:
 	my_MSG deny_register(my_MSG msg);
 	my_MSG is_registered_query(my_MSG msg);
 	my_MSG is_registered_query_answer(my_MSG msg);
+	my_MSG published(my_MSG msg);
+	my_MSG unpublished(my_MSG msg);
+	my_MSG inform_resp(my_MSG msg, client_data client);
+	my_MSG find_resp(my_MSG msg, client_data client);
+	my_MSG find_denied(my_MSG msg);
+	my_MSG refer(my_MSG msg);
+	my_MSG error(my_MSG msg, std::string message);
 
 private:
 	std::mutex mut_msgs;

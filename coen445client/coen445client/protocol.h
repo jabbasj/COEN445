@@ -24,7 +24,7 @@ struct client_status
 	std::string SERVER_ADDRESS = "";
 	int			SERVER_PORT = -1;
 	std::string MY_ADDRESS = "";
-	int			MY_PORT = 10000;			// port attempted, increment by 1 until bind works
+	int			MY_PORT = -1;			// port attempted, increment by 1 until bind works
 	std::vector<friend_data> friends;
 };
 
@@ -38,10 +38,21 @@ public:
 		last_message = getId();
 	}
 
+	my_MSG chat(friend_data to_friend, std::string message);
+	my_MSG ack(my_MSG msg);
+	my_MSG bye(friend_data bye_friend);
 	my_MSG register_me();
-	my_MSG publish();
-	my_MSG protocol::register_me(my_MSG);
-	my_MSG bye();
+	my_MSG register_me(my_MSG);
+	my_MSG publish(bool status, bool update_friends, bool expect_reply = true);
+	my_MSG inform_req();
+	my_MSG find_req(std::string name);
+	my_MSG find_req(std::string name, my_MSG);
+	friend_data extract_friend_data(my_MSG, std::string name);
+	client_status extract_my_info(my_MSG);
+
+	bool replied(my_MSG);
+	my_MSG error(my_MSG msg, std::string message);
+	std::vector<my_MSG> timed_out_msgs();
 
 private:
 	std::mutex mut_msgs;
@@ -53,6 +64,7 @@ private:
 	void newmsg(my_MSG);
 	void cleanup();
 
+	// returns unique id: time_since_epoch in milliseconds
 	int getId() {
 		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	}

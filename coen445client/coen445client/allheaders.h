@@ -1,7 +1,7 @@
 #pragma once
 
 #include "stdafx.h"
-
+#include<thread>
 #include <stdio.h>
 #include <tchar.h>
 #include <string>
@@ -12,3 +12,4 @@
 #include <fstream>
 #include <future>
 #include <Ws2tcpip.h>
+#include <regex>

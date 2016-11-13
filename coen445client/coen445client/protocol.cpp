@@ -17,6 +17,7 @@ my_MSG protocol::register_me() {
 	return answer;
 }
 
+
 //try to register to next server
 my_MSG protocol::register_me(my_MSG msg) {
 
@@ -27,15 +28,20 @@ my_MSG protocol::register_me(my_MSG msg) {
 		if (msg.type == "REGISTER-DENIED") {	
 		
 			client_info->SERVER_ADDRESS = msg.message.substr(0, msg.message.find(":"));
-			client_info->MY_PORT = stoi(msg.message.substr(msg.message.find(":") + 1, -1));
+			client_info->SERVER_PORT = stoi(msg.message.substr(msg.message.find(":") + 1, -1));
 
 			return register_me();
 		}
 	}
-	return reply_to;
+	//shouldn't get here
+	return register_me();
 }
 
-my_MSG protocol::publish() {
+
+//TODO: Modify 1 field at a time
+//uses client_info->friends and given status to
+//format message as: status:{on/off}friends:{friend1,friend2,friendx,}
+my_MSG protocol::publish(bool my_status, bool update_friends, bool expect_reply /*= true*/) {
 
 	my_MSG answer;
 
@@ -45,19 +51,192 @@ my_MSG protocol::publish() {
 	answer.addr = client_info->SERVER_ADDRESS;
 	answer.port = client_info->SERVER_PORT;
 
-	std::string friends = "";
-
-	for (int i = 0; i < client_info->friends.size(); i++) {
-		friends += client_info->friends[i].name + ",";
+	std::string status = "";
+	if (my_status) {status = "status:{on}";}
+	else {
+		status = "status:{off}";
 	}
-	friends = friends.substr(0, friends.find_last_of(","));
 
-	answer.message = friends;
+	if (update_friends) {
+		std::string friends = "friends:{";
+		for (int i = 0; i < client_info->friends.size(); i++) {
+			friends += client_info->friends[i].name + ",";
+		}
+		//status:{on/off}friends:{friend1,friend2,friendx,}
+		answer.message = status + friends + "}";
+	}
+	else {
+		answer.message = status;
+	}
+
+	if (expect_reply) {
+		newmsg(answer);
+	}
+
+	return answer;
+}
+
+
+my_MSG protocol::inform_req() {
+
+	my_MSG answer;
+
+	answer.type = "INFORMReq";
+	answer.id = getId();
+	answer.name = client_info->MY_NAME;
+	answer.addr = client_info->SERVER_ADDRESS;
+	answer.port = client_info->SERVER_PORT;
+	answer.SERVER_MSG = 0;
 
 	newmsg(answer);
 
 	return answer;
 }
+
+
+my_MSG protocol::find_req(std::string name) {
+
+	my_MSG answer;
+
+	answer.type = "FINDReq";
+	answer.id = getId();
+	answer.name = client_info->MY_NAME;
+	answer.addr = client_info->SERVER_ADDRESS;
+	answer.port = client_info->SERVER_PORT;
+	answer.SERVER_MSG = 0;
+	answer.message = name;
+
+	newmsg(answer);
+
+	return answer;
+}
+
+
+my_MSG protocol::find_req(std::string name, my_MSG msg) {
+
+	my_MSG reply_to = replied_to(msg);
+
+	if (reply_to.id != 0) {
+
+		if (msg.type == "REFER") {
+
+			my_MSG answer;
+			answer.type = "FINDReq";
+			answer.id = getId();
+			answer.addr = msg.message.substr(0, msg.message.find(":"));
+			answer.port = stoi(msg.message.substr(msg.message.find(":") + 1, -1));
+			answer.message = name;
+			answer.SERVER_MSG = 0;
+
+			if (answer.addr == client_info->SERVER_ADDRESS && answer.port == client_info->SERVER_PORT) {
+				answer.type = "FINDDenied";
+			}
+			else {
+				newmsg(answer);
+			}
+
+			return answer;
+		}
+	}
+	//shouldn't get here
+	return find_req(name);
+}
+
+
+friend_data protocol::extract_friend_data(my_MSG msg, std::string name) {
+
+	std::string addr = msg.message.substr(0, msg.message.find(':'));
+	std::string port = msg.message.substr(msg.message.find(':') + 1, std::string::npos);
+
+	friend_data friend_found;
+	friend_found.name = name;
+	friend_found.addr = addr;
+	friend_found.port = stoi(port);
+
+	return friend_found;
+}
+
+
+client_status protocol::extract_my_info(my_MSG msg) {
+
+	std::regex r("status:\\{(.*)\\}addr:\\{(.*)\\}port:\\{(.*)\\}friends:\\{(.*)\\}");
+	std::smatch result;
+	std::regex_match(msg.message, result, r);
+
+	std::string status, addr, port, friends = "";
+	status = result[1];
+	addr = result[2];
+	port = result[3];
+	friends = result[4];
+
+	if (friends.size() > 0) {
+		friends.replace(friends.end() - 1, friends.end(), "");
+	}
+
+	client_status my_info;
+	my_info.MY_NAME = status;
+	my_info.MY_ADDRESS = addr;
+	my_info.MY_PORT = stoi(port);
+
+	friend_data temp_friend;
+	std::string temp = "";
+	for (int i = 0; i < friends.size(); i++) {
+		if (friends[i] != ',') {
+			temp += friends[i];
+		}
+		else {
+			temp_friend.name = temp;
+			my_info.friends.push_back(temp_friend);
+			temp = "";
+		}
+	}
+	if (temp != "") { 
+		temp_friend.name = temp;
+		my_info.friends.push_back(temp_friend);
+	}
+
+	return my_info;
+}
+
+
+my_MSG protocol::chat(friend_data to_friend, std::string message) {
+
+	my_MSG answer;
+
+	answer.type = "CHAT";
+	answer.addr = to_friend.addr;
+	answer.port = to_friend.port;
+	answer.id = getId();
+	answer.message = message;
+	answer.SERVER_MSG = 0;
+
+	newmsg(answer);
+	
+	return answer;
+}
+
+
+my_MSG protocol::bye(friend_data bye_friend) {
+
+	my_MSG msg;
+
+	msg.type = "BYE";
+	msg.id = getId();
+	msg.name = client_info->MY_NAME;
+	msg.addr = bye_friend.addr;
+	msg.port = bye_friend.port;
+	msg.SERVER_MSG = 0;
+
+	return msg;
+}
+
+
+my_MSG protocol::ack(my_MSG msg) {
+
+	msg.type = "ACK";
+	return msg;
+}
+
 
 //push message for which we expect reply
 void protocol::newmsg(my_MSG msg) {
@@ -68,6 +247,7 @@ void protocol::newmsg(my_MSG msg) {
 
 	mut_msgs.unlock();
 }
+
 
 //remove messages older than 1 minute.
 void protocol::cleanup() {
@@ -84,6 +264,29 @@ void protocol::cleanup() {
 	}
 	mut_msgs.unlock();
 }
+
+
+//returns messages that are 10 seconds old
+std::vector<my_MSG> protocol::timed_out_msgs() {
+	mut_msgs.lock();
+
+	std::vector<my_MSG>::iterator it = messages_pending_reply.begin();
+	std::vector<my_MSG> to_resend;
+
+	int current_time = getId();
+
+	while (it != messages_pending_reply.end()) {
+
+		if ((current_time - it->id) > 10000) {
+			to_resend.push_back(*it);
+		}
+		it++;
+	}
+	mut_msgs.unlock();
+
+	return to_resend;
+}
+
 
 //get message replied to
 //cleans up
@@ -105,4 +308,30 @@ my_MSG protocol::replied_to(my_MSG msg) {
 	cleanup();
 
 	return reply_to;
+}
+
+
+bool protocol::replied(my_MSG msg) {
+	my_MSG temp = replied_to(msg);
+
+	if (temp.id != 0) {
+		return true;
+	}
+	return false;
+}
+
+
+my_MSG protocol::error(my_MSG msg , std::string message) {
+
+	my_MSG error_msg;
+
+	error_msg.type = "ERROR";
+	error_msg.id = msg.id;
+	error_msg.name = client_info->MY_NAME;
+	error_msg.addr = msg.addr;
+	error_msg.port = msg.port;
+	error_msg.message = message;
+	error_msg.SERVER_MSG = 0;
+
+	return error_msg;
 }

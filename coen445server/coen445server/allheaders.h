@@ -1,7 +1,7 @@
 #pragma once
 
 #include "stdafx.h"
-
+#include<thread>
 #include <tchar.h>
 #include <winsock2.h>
 #include <fstream>
