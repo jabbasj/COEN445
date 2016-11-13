@@ -94,6 +94,7 @@ void getRegistered() {
 	printf("\nRegistering...");
 	registered = false;
 	friends_available.clear();
+	protocol_manager->erase_all();
 
 	printf("Enter your name:\n");
 	std::cin >> client_info.MY_NAME;
@@ -136,12 +137,15 @@ void getRegistered() {
 				SetConsoleTitle(std::wstring(title.begin(), title.end()).c_str());
 				break;
 			}
-			else {
+			else if (recv_msg.type == "REGISTER-DENIED") {
 				my_MSG reply = protocol_manager->register_me(recv_msg);
 				attempts--;
 				if (attempts > 0) {
 					send(reply);
 				}
+			}
+			else {
+				Sleep(1000);
 			}
 		}
 	}	
@@ -336,6 +340,9 @@ void getFriend() {
 				}
 				break;
 			}
+			else {
+				Sleep(1000);
+			}
 		}
 	}
 }
@@ -382,7 +389,6 @@ void getChatting() {
 			input = "";
 		}
 	}
-
 }
 
 
@@ -475,7 +481,6 @@ void sender() {
 			Sleep(10); //Give time for receiver to process
 		}
 	}
-
 }
 
 

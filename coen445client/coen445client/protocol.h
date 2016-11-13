@@ -60,6 +60,7 @@ public:
 	my_MSG error(my_MSG msg, std::string message);
 	std::vector<my_MSG> timed_out_msgs();
 	bool cleanup();
+	void erase_all();
 
 private:
 	std::mutex mut_msgs;

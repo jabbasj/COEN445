@@ -734,7 +734,7 @@ void printClientsRegistered() {
 
 	while (1) {
 
-		Sleep(40000);
+		Sleep(60000);
 		mut_clients.lock();
 		std::cout << "\nPRINTING CLIENTS LIST:\n";
 		std::cout << "================================================================================\n";

@@ -370,6 +370,18 @@ bool protocol::cleanup() {
 
 
 
+void protocol::erase_all() {
+
+	mut_msgs.lock();
+	messages_pending_reply.clear();
+	mut_msgs.unlock();
+
+	mut_defrag.lock();
+	messages_to_defragment.clear();
+	mut_defrag.unlock();
+}
+
+
 //returns messages that are 5 seconds old
 std::vector<my_MSG> protocol::timed_out_msgs() {
 	mut_msgs.lock();
