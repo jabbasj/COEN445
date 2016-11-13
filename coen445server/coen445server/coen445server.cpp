@@ -2,8 +2,9 @@
 #include "protocol.h"
 
 #define BUFLEN 1024
-//TODO: Periodically print clients registered 
 //TODO: Error handling to prevent crashes due to corrupt/invalid format messages
+//TODO: protocol error tolerance, i.e. if contents dmgd ask for resend (currently assuming reply has correct contents)
+//TODO: set all clients' status as off when closing
 
 void printMsg(my_MSG MSGPacket);
 bool finished = false;
@@ -12,7 +13,7 @@ server_status my_status;				//my addr/port, next addr/port, clients registered &
 protocol * protocol_manager;
 
 std::vector<my_MSG> messages_to_send;
-std::vector<my_MSG> messages_received;	//to do, cleanup old messages
+std::vector<my_MSG> messages_received;
 std::vector<my_MSG> temp;
 std::mutex			mut_send;			//mutex for temp (which is a holder for messages_to_send
 std::mutex			mut_recv;			//mutex for messages_received 
@@ -30,6 +31,7 @@ void saveClientsData(client_data, bool);
 void registrationHandler(my_MSG);
 bool findRequestHandler(my_MSG);
 void clientHandler(sockaddr_in, my_MSG);
+void printClientsRegistered();
 void send(my_MSG);
 void receive(my_MSG);
 void sender();
@@ -56,11 +58,11 @@ int _tmain(int argc, _TCHAR* argv[])
 		protocol_manager = new protocol(&my_status);
 
 		initializeConnection();
-		std::thread ts(sender);
-		std::thread tr(listener);
-		ts.join();
-		tr.join();
-
+		std::async(printClientsRegistered);
+		std::thread s(sender);
+		std::thread l(listener);
+		s.join();
+		l.join();
 	}
 	catch (std::exception e) {
 		printf(e.what());
@@ -160,8 +162,7 @@ void listener() {
 				}
 
 				if (success) {
-					std::thread t(registrationHandler, received_packet);
-					t.detach();
+					std::async(registrationHandler, received_packet);
 				}
 				else {
 					//send error to sender
@@ -588,7 +589,6 @@ void registerClient(my_MSG data) {
 }
 
 
-//TODO: Modify 1 field at a time
 //update client_registered and client_online
 //call saveClientData
 //message field format: {ON/OFF}{friend1,friend2,friendx,}
@@ -729,6 +729,32 @@ void saveClientsData(client_data client, bool update_friends) {
 	mut_client_file.unlock();
 }
 
+//Periodically prints clients list
+void printClientsRegistered() {
+
+	while (1) {
+
+		Sleep(40000);
+		mut_clients.lock();
+		std::cout << "\nPRINTING CLIENTS LIST:\n";
+		std::cout << "================================================================================\n";
+		for (int i = 0; i < my_status.clients_registered.size(); i++) {
+			client_data client = my_status.clients_registered[i];
+
+			std::cout << "name:{" << client.name << "}status:{" << client.status;
+			std::cout << "}addr:{" << client.addr << "}port:{" << client.port;
+			std::cout << "}friends:{";
+
+			for (int j = 0; j < client.friends.size(); j++) {
+				std::cout << client.friends[j] << ", ";
+			}
+			std::cout << "}\n";
+		}
+		std::cout << "================================================================================\n";
+		mut_clients.unlock();
+	}
+}
+
 
 //sets status back to off
 void closeServer() {
@@ -833,7 +859,7 @@ BOOL WINAPI ConsoleCtrlEventHandler(DWORD dwCtrlType)
 
 
 //deserialize given buffer into a my_MSG
-//expected format: ^^^type(str)^^^id(int)^^^port(int)^^^addr(str)^^^name(str)^^^message(str)^^^server_msg(int)^^^
+//expected format: ^^^type(str)^^^id(int)^^^port(int)^^^addr(str)^^^name(str)^^^message(str)^^^server_msg(int)^^^more_bit(int)^^^offset(int)^^^
 void deserialize(char* to_deserialize, my_MSG* result) {
 	/*memcpy(&result->type, to_deserialize, sizeof(result->type));
 	memcpy(&result->id, to_deserialize + sizeof(result->type), sizeof(int));
@@ -847,11 +873,11 @@ void deserialize(char* to_deserialize, my_MSG* result) {
 	std::string pattern = "^^^";
 	std::string to_deserial = to_deserialize;
 	/*	^^^type(str)^^^id(int)^^^port(int)^^^addr(str)^^^name(str)^^^message(str)^^^server_msg(int)^^^	*/
-	std::regex r("\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^");
+	std::regex r("\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^");
 	std::smatch match_result;
 	std::regex_match(to_deserial, match_result, r);
 
-	if (!match_result.empty() && match_result[0].length() > 0 && match_result.size() == 8) {
+	if (!match_result.empty() && match_result[0].length() > 0 && match_result.size() == 10) {
 		result->type = match_result[1];
 		result->id = stoi(match_result[2]);
 		result->port = stoi(match_result[3]);
@@ -859,6 +885,8 @@ void deserialize(char* to_deserialize, my_MSG* result) {
 		result->name = match_result[5];
 		result->message = match_result[6];
 		result->SERVER_MSG = stoi(match_result[7]);
+		result->MORE_BIT = stoi(match_result[8]);
+		result->OFFSET = stoi(match_result[9]);
 	}
 	else {
 		throw "Error deserialize()\n";
@@ -925,6 +953,18 @@ void serialize(char* result, my_MSG* to_serialize) {
 		for (j = 0; j < data.size(); j++) {
 			result[i++] = data[j];
 		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); 
+		
+		data = std::to_string(to_serialize->MORE_BIT); // more_bit
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+
+		data = std::to_string(to_serialize->OFFSET); // more_bit
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}		
 		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //finish
 	}
 	catch (...) {

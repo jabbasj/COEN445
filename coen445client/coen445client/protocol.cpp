@@ -1,6 +1,5 @@
 #include "protocol.h"
 
-
 my_MSG protocol::register_me() {
 
 	my_MSG answer;
@@ -12,7 +11,7 @@ my_MSG protocol::register_me() {
 	answer.port = client_info->SERVER_PORT;
 	answer.SERVER_MSG = 0;
 
-	newmsg(answer);
+	new_msg(answer);
 
 	return answer;
 }
@@ -38,7 +37,6 @@ my_MSG protocol::register_me(my_MSG msg) {
 }
 
 
-//TODO: Modify 1 field at a time
 //uses client_info->friends and given status to
 //format message as: status:{on/off}friends:{friend1,friend2,friendx,}
 my_MSG protocol::publish(bool my_status, bool update_friends, bool expect_reply /*= true*/) {
@@ -70,7 +68,7 @@ my_MSG protocol::publish(bool my_status, bool update_friends, bool expect_reply 
 	}
 
 	if (expect_reply) {
-		newmsg(answer);
+		new_msg(answer);
 	}
 
 	return answer;
@@ -88,7 +86,7 @@ my_MSG protocol::inform_req() {
 	answer.port = client_info->SERVER_PORT;
 	answer.SERVER_MSG = 0;
 
-	newmsg(answer);
+	new_msg(answer);
 
 	return answer;
 }
@@ -106,7 +104,7 @@ my_MSG protocol::find_req(std::string name) {
 	answer.SERVER_MSG = 0;
 	answer.message = name;
 
-	newmsg(answer);
+	new_msg(answer);
 
 	return answer;
 }
@@ -132,7 +130,7 @@ my_MSG protocol::find_req(std::string name, my_MSG msg) {
 				answer.type = "FINDDenied";
 			}
 			else {
-				newmsg(answer);
+				new_msg(answer);
 			}
 
 			return answer;
@@ -206,14 +204,106 @@ my_MSG protocol::chat(friend_data to_friend, std::string message) {
 	answer.type = "CHAT";
 	answer.addr = to_friend.addr;
 	answer.port = to_friend.port;
+	answer.name = client_info->MY_NAME;
 	answer.id = getId();
 	answer.message = message;
 	answer.SERVER_MSG = 0;
 
-	newmsg(answer);
+	new_msg(answer);
 	
 	return answer;
 }
+
+
+std::vector<my_MSG> protocol::send_fragmented_chat(friend_data to_friend, std::string message) {
+
+	std::vector<my_MSG> messages;
+
+	my_MSG temp_msg;
+	temp_msg.type = "CHAT";
+	temp_msg.addr = to_friend.addr;
+	temp_msg.port = to_friend.port;
+	temp_msg.name = client_info->MY_NAME;
+	temp_msg.id = getId();
+	temp_msg.SERVER_MSG = 0;
+
+	if (message.size() > MAX_MESSAGE_LENGTH) {
+		
+		std::vector<std::string> message_fragments;
+		std::string temp_str; temp_str += message[0];
+		for (int j = 1; j < message.size(); j++) {
+			temp_str += message[j];
+			if ((j % MAX_MESSAGE_LENGTH) == 0) {
+				message_fragments.push_back(temp_str);
+				temp_str = "";
+			}
+			else if ((message.size() - j) <= MAX_MESSAGE_LENGTH) {
+				message_fragments.push_back(message.substr(j, -1));
+				break;
+			}
+		}
+		for (int k = 0; k < message_fragments.size(); k++) {
+			temp_msg.MORE_BIT = 1;
+			temp_msg.OFFSET = k;
+			temp_msg.message = message_fragments[k];
+
+			messages.push_back(temp_msg);
+		}
+
+		messages.back().MORE_BIT = messages.size();
+
+		for (int i = 0; i < messages.size(); i++) {
+			new_msg(messages[i]);
+		}
+	}
+	else {
+		messages.push_back(chat(to_friend, message));
+	}
+
+	return messages;
+}
+
+
+
+my_MSG protocol::receive_fragmented_chat(my_MSG msg) {
+
+	if (msg.MORE_BIT == 0 && msg.OFFSET == 0) {
+		return msg;
+	}
+	else if (msg.MORE_BIT == 1) {
+		msg.type = "FRAGMENT";
+		new_fragment(msg);
+		return msg;
+	}
+	//last of series of fragments, assemble them:
+	my_MSG combined_message = msg; 
+	combined_message.message = "";
+
+	mut_defrag.lock();
+	std::vector<my_MSG>::iterator it = messages_to_defragment.begin();
+	int index = 0;
+	int last_offset = msg.OFFSET;
+
+	while (index < last_offset) {
+		it = messages_to_defragment.begin();
+		while (it != messages_to_defragment.end()) {
+			if (it->id == msg.id) {
+				if (it->OFFSET == index) {
+					combined_message.message += it->message;
+					it = messages_to_defragment.erase(it);
+					index++;
+					break;
+				}
+			}
+			it++;
+		}
+	}
+	mut_defrag.unlock();
+
+	combined_message.message += msg.message;
+	return combined_message;
+}
+
 
 
 my_MSG protocol::bye(friend_data bye_friend) {
@@ -238,8 +328,8 @@ my_MSG protocol::ack(my_MSG msg) {
 }
 
 
-//push message for which we expect reply
-void protocol::newmsg(my_MSG msg) {
+//push message for which we expect reply and defragmenting
+void protocol::new_msg(my_MSG msg) {
 	mut_msgs.lock();
 
 	messages_pending_reply.push_back(msg);
@@ -249,24 +339,38 @@ void protocol::newmsg(my_MSG msg) {
 }
 
 
-//remove messages older than 1 minute.
-void protocol::cleanup() {
+void protocol::new_fragment(my_MSG msg) {
+
+	mut_defrag.lock();
+	messages_to_defragment.push_back(msg);
+	mut_defrag.unlock();
+}
+
+
+//remove messages older than 30 seconds.
+bool protocol::cleanup() {
+
 	mut_msgs.lock();
+	bool something_erased = false;
 	std::vector<my_MSG>::iterator it = messages_pending_reply.begin();
 
 	while (it != messages_pending_reply.end()) {
 
-		if ((last_message - it->id) > 60000) {
+		if ((last_message - it->id) > 30000) {
 
 			it = messages_pending_reply.erase(it);
+			something_erased = true;
 		}
-		else ++it;
+		else { ++it; }
 	}
 	mut_msgs.unlock();
+
+	return something_erased;
 }
 
 
-//returns messages that are 10 seconds old
+
+//returns messages that are 5 seconds old
 std::vector<my_MSG> protocol::timed_out_msgs() {
 	mut_msgs.lock();
 
@@ -277,7 +381,7 @@ std::vector<my_MSG> protocol::timed_out_msgs() {
 
 	while (it != messages_pending_reply.end()) {
 
-		if ((current_time - it->id) > 10000) {
+		if ((current_time - it->id) > 5000) {
 			to_resend.push_back(*it);
 		}
 		it++;
@@ -304,8 +408,6 @@ my_MSG protocol::replied_to(my_MSG msg) {
 		}
 	}
 	mut_msgs.unlock();
-
-	cleanup();
 
 	return reply_to;
 }

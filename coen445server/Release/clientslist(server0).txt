@@ -1,4 +1,5 @@
-name:{jafar}status:{off}addr:{192.168.2.41}port:{8888}friends:{abbasj,mike,kappa}
+name:{jafar}status:{off}addr:{192.168.2.41}port:{10000}friends:{abbasj,mike,kappa}
 name:{mike}status:{off}addr:{192.168.2.41}port:{8888}friends:{jafar}
 name:{abbasj}status:{off}addr:{192.168.2.41}port:{8888}friends:{jafar}
-name:{micheal}status:{off}addr:{192.168.2.41}port:{8888}friends:{}
+name:{micheal}status:{off}addr:{192.168.2.41}port:{10000}friends:{}
+name:{1}status:{off}addr:{192.168.2.41}port:{10000}friends:{off}

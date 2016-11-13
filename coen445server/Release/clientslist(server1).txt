@@ -1,0 +1,2 @@
+name:{test}status:{off}addr:{192.168.2.41}port:{10001}friends:{jafar}
+name:{2}status:{off}addr:{192.168.2.41}port:{10000}friends:{yaya}

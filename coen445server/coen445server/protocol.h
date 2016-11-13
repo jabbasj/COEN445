@@ -10,6 +10,8 @@ struct my_MSG
 	std::string name = "";
 	std::string message = "";
 	int			SERVER_MSG = 0;
+	int			MORE_BIT = 0;
+	int			OFFSET = 0;
 };
 
 struct client_data {

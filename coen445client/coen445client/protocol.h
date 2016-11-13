@@ -1,6 +1,8 @@
 #include "allheaders.h"
 
-//structure sent down the wire, cast to a char*
+#define MAX_MESSAGE_LENGTH 140
+
+//structure to be serialized
 struct my_MSG
 {
 	std::string type = "";
@@ -10,6 +12,8 @@ struct my_MSG
 	std::string name = "";
 	std::string message = "";
 	int			SERVER_MSG = 0;
+	int			MORE_BIT = 0;
+	int			OFFSET = 0;
 };
 
 struct friend_data {
@@ -38,6 +42,8 @@ public:
 		last_message = getId();
 	}
 
+	my_MSG receive_fragmented_chat(my_MSG msg);
+	std::vector<my_MSG> send_fragmented_chat(friend_data to_friend, std::string message);
 	my_MSG chat(friend_data to_friend, std::string message);
 	my_MSG ack(my_MSG msg);
 	my_MSG bye(friend_data bye_friend);
@@ -53,16 +59,19 @@ public:
 	bool replied(my_MSG);
 	my_MSG error(my_MSG msg, std::string message);
 	std::vector<my_MSG> timed_out_msgs();
+	bool cleanup();
 
 private:
 	std::mutex mut_msgs;
+	std::mutex mut_defrag;
 	int last_message;
 	client_status* client_info;
 	std::vector<my_MSG> messages_pending_reply;
+	std::vector<my_MSG> messages_to_defragment;
 
 	my_MSG replied_to(my_MSG);
-	void newmsg(my_MSG);
-	void cleanup();
+	void new_msg(my_MSG);
+	void new_fragment(my_MSG msg);
 
 	// returns unique id: time_since_epoch in milliseconds
 	int getId() {

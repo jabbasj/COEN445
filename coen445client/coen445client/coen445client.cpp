@@ -1,6 +1,10 @@
 #include "allheaders.h"
 #include "protocol.h"
-//TODO: chat message fragmentation
+
+//TODO: error handling
+//TODO: periodically go over messages_received: erase old ones and send error msg to sender
+//TODO: protocol error tolerance, i.e. if contents dmg ask for resend (currently assuming reply has correct contents)
+
 #define BUFLEN 1024  //Max length of buffer
 #define START_PORT 10000
 
@@ -24,13 +28,17 @@ void getMyExternalIP();
 void listener();
 void sender();
 void send(my_MSG);
+void send(std::vector<my_MSG> msgs);
 void receive(my_MSG msg);
 void resend_old_messages();
+void erase_ignored_messages();
 void deserialize(char*, my_MSG*);
 void serialize(char*, my_MSG*);
 void message_handler(my_MSG);
 void closeClient();
 void cleanup();
+void send_chat_message(friend_data);
+void receive_chat_message(my_MSG);
 
 // UI
 void myInterface();
@@ -41,7 +49,7 @@ void getMyInfo();
 void getChatting();
 void requestStatusAndFriends(bool*, bool*);
 std::string requestFindFriend();
-bool registered, published, chat_mode = false;
+bool registered, published, chat_mode, finished = false;
 
 // Socket structs
 struct sockaddr_in client, si_send, si_recv;
@@ -63,18 +71,15 @@ int _tmain(int argc, _TCHAR* argv[])
 		initializeConnection(); // Initialize winsock, create socket, load server list
 		getMyExternalIP();		// Not used
 
-		std::thread ts(listener);
-		std::thread tr(sender);
-		std::thread trs(resend_old_messages);
+		std::async(listener);
+		std::async(sender);
+		std::async(resend_old_messages);
+		std::async(erase_ignored_messages);
 		myInterface();
-		ts.join();
-		tr.join();
-		trs.join();
 	}
 	catch (std::exception e) {
 		printf(e.what());
 		closeClient();
-		cleanup();
 		system("pause");
 	}
 
@@ -336,7 +341,7 @@ void getFriend() {
 }
 
 
-//TODO: add fragmentation of long chat messages
+//chat ui
 void getChatting() {
 
 	if (!registered) { std::cout << "\nERROR: Must register first!\n"; return; };
@@ -347,7 +352,7 @@ void getChatting() {
 
 	std::string input = "";
 	while (friends_available.size() > 0) {
-		std::cout << "\nSend message to: (";
+		std::cout << "\nChoose friend: (";
 
 		for (int i = 0; i < friends_available.size(); i++) {
 			std::cout << i << ": " << friends_available[i].name << ", "; 
@@ -370,18 +375,7 @@ void getChatting() {
 			}
 			
 			friend_data selected_friend = friends_available[selection];
-			std::string my_message;
-			std::cout << "================================================================================\n";
-			std::cout << "Enter message for (" << selected_friend.name << "): \n";	
-			std::cin.ignore();
-			std::getline(std::cin, my_message);
-			std::cout << "================================================================================";
-
-			my_MSG chat_msg = protocol_manager->chat(selected_friend, my_message);
-			send(chat_msg);
-
-			Sleep(100);
-
+			send_chat_message(selected_friend);
 		}
 		catch (...) {
 			std::cout << "Wrong input!\n";
@@ -410,6 +404,7 @@ void myInterface() {
 			switch (stoi(input)) {
 				case 0:
 					closeClient();
+					Sleep(100);
 					getRegistered();
 					break;
 				case 1:
@@ -477,6 +472,7 @@ void sender() {
 			}
 			messages_to_send.erase(messages_to_send.begin());
 
+			Sleep(10); //Give time for receiver to process
 		}
 	}
 
@@ -510,13 +506,13 @@ void listener() {
 			printf("\nReceived packet from %s:%d\n", inet_ntoa(si_recv.sin_addr), ntohs(si_recv.sin_port));
 			printMsg(received_packet);
 
-			std::thread h(message_handler, received_packet);
-			h.detach();			
+			std::async(message_handler, received_packet);		
 		}
 	}
 }
 
 
+//Handles messages first
 void message_handler(my_MSG recv_msg) {
 
 	if (recv_msg.type == "ACK") {		
@@ -527,9 +523,9 @@ void message_handler(my_MSG recv_msg) {
 		std::cout << "ACK\n";
 	}
 	else if (recv_msg.type == "CHAT") {
-		std::cout << "================================================================================\n";
-		std::cout << "Message from (" << recv_msg.name << "):\n" << recv_msg.message << std::endl;
-		std::cout << "================================================================================\n";
+
+		std::async(receive_chat_message,recv_msg);
+
 		my_MSG reply = protocol_manager->ack(recv_msg);
 		send(reply);
 	}
@@ -549,8 +545,41 @@ void message_handler(my_MSG recv_msg) {
 		}
 		mut_friends.unlock();
 	}
+	else {
+		//save msg, let current handler take care of it
+		receive(recv_msg);
+	}
+}
 
-	receive(recv_msg);
+
+//Asks user for message and sends it to friend, accepts large messages
+void send_chat_message(friend_data to_friend) {
+	std::string input;
+
+	std::cout << "================================================================================\n";
+	std::cout << "ENTER message for (" << to_friend.name << "): \n";
+	std::cin.ignore();
+	std::getline(std::cin, input);
+	std::cout << "================================================================================";
+
+	std::vector<my_MSG> to_send = protocol_manager->send_fragmented_chat(to_friend, input);
+
+	send(to_send);
+}
+
+
+void receive_chat_message(my_MSG msg) {
+
+	my_MSG final_msg = protocol_manager->receive_fragmented_chat(msg);
+
+	if (final_msg.type == "CHAT") {
+		std::cout << "================================================================================\n";
+		std::cout << "MESSAGE from (" << final_msg.name << "):\n" << final_msg.message << std::endl;
+		std::cout << "================================================================================\n";
+	}
+	else if (final_msg.type == "FRAGMENT") {
+		//waiting
+	}
 }
 
 
@@ -667,6 +696,15 @@ void send(my_MSG msg) {
 	mut_send.unlock();
 }
 
+//locks mut_send, pushes multiple msgs into queue
+void send(std::vector<my_MSG> msgs) {
+	mut_send.lock();
+	for (int i = 0; i < msgs.size(); i++) {
+		temp.push_back(msgs[i]);
+	}
+	mut_send.unlock();
+}
+
 
 void receive(my_MSG msg) {
 	mut_recv.lock();
@@ -675,7 +713,7 @@ void receive(my_MSG msg) {
 }
 
 
-//resends messages that haven't been replied to for over 10 seconds
+//resends messages that haven't been replied to for over 5 seconds
 void resend_old_messages() {
 	std::vector<my_MSG> timed_out;
 
@@ -692,7 +730,26 @@ void resend_old_messages() {
 			send(timed_out[i]);
 		}
 
-		Sleep(10000);
+		Sleep(5000);
+		start = std::chrono::system_clock::now();
+	}
+}
+
+
+//erase messages older than 30 seconds
+void erase_ignored_messages() {
+	std::vector<my_MSG> ignored;
+
+	auto start = std::chrono::system_clock::now();
+
+	while (1) {
+
+		if (protocol_manager->cleanup()) {
+			//Shouldn't happen
+			std::cout << "NOTE: IGNORED MESSAGES ERASED...\n";
+		}
+
+		Sleep(30000);
 		start = std::chrono::system_clock::now();
 	}
 }
@@ -708,13 +765,13 @@ void printMsg(my_MSG msgPacket)
 		std::cout << "addr::" << msgPacket.addr << std::endl;
 		std::cout << "name::" << msgPacket.name << std::endl;
 		std::cout << "msg::" << msgPacket.message << std::endl;
-		std::cout << "sever_msg::" << msgPacket.SERVER_MSG << std::endl << std::endl;
+		std::cout << "sever_msg::" << msgPacket.SERVER_MSG << " -- " << "more_bit::" << msgPacket .MORE_BIT << " -- " << "offset::" << msgPacket .OFFSET << std::endl << std::endl;
 	}
 }
 
 
 //deserialize given buffer into a my_MSG
-//expected format: ^^^type(str)^^^id(int)^^^port(int)^^^addr(str)^^^name(str)^^^message(str)^^^server_msg(int)^^^
+//expected format: ^^^type(str)^^^id(int)^^^port(int)^^^addr(str)^^^name(str)^^^message(str)^^^server_msg(int)^^^more_bit(int)^^^offset(int)^^^
 void deserialize(char* to_deserialize, my_MSG* result) {
 	/*memcpy(&result->type, to_deserialize, sizeof(result->type));
 	memcpy(&result->id, to_deserialize + sizeof(result->type), sizeof(int));
@@ -728,11 +785,11 @@ void deserialize(char* to_deserialize, my_MSG* result) {
 	std::string pattern = "^^^";
 	std::string to_deserial = to_deserialize;
 	/*	^^^type(str)^^^id(int)^^^port(int)^^^addr(str)^^^name(str)^^^message(str)^^^server_msg(int)^^^	*/
-	std::regex r("\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^");
+	std::regex r("\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^(.*)\\^\\^\\^");
 	std::smatch match_result;
 	std::regex_match(to_deserial, match_result, r);
 
-	if (!match_result.empty() && match_result[0].length() > 0 && match_result.size() == 8) {
+	if (!match_result.empty() && match_result[0].length() > 0 && match_result.size() == 10) {
 		result->type = match_result[1];
 		result->id = stoi(match_result[2]);
 		result->port = stoi(match_result[3]);
@@ -740,6 +797,11 @@ void deserialize(char* to_deserialize, my_MSG* result) {
 		result->name = match_result[5];
 		result->message = match_result[6];
 		result->SERVER_MSG = stoi(match_result[7]);
+		result->MORE_BIT = stoi(match_result[8]);
+		result->OFFSET = stoi(match_result[9]);
+	}
+	else {
+		throw "Error deserialize()\n";
 	}
 
 }
@@ -758,52 +820,69 @@ void serialize(char* result, my_MSG* to_serialize) {
 	memcpy(result + sizeof(to_serialize->type) + sizeof(to_serialize->id) + sizeof(to_serialize->port) + sizeof(to_serialize->addr) + sizeof(to_serialize->name), &to_serialize->message, sizeof(to_serialize->message));
 	memcpy(result + sizeof(to_serialize->type) + sizeof(to_serialize->id) + sizeof(to_serialize->port) + sizeof(to_serialize->addr) + sizeof(to_serialize->name) + sizeof(to_serialize->message), &to_serialize->SERVER_MSG, sizeof(to_serialize->SERVER_MSG));
 	*/
-	memset(result, '\0', BUFLEN);
-	char pattern[] = "^^^";
-	int i = 0;
-	int j = 0;
-	std::string data;
 
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //start
-	for (; j < to_serialize->type.size(); j++) { //type
-		result[i++] = to_serialize->type[j];
-	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+	try {
+		memset(result, '\0', BUFLEN);
+		char pattern[] = "^^^";
+		int i = 0;
+		int j = 0;
+		std::string data;
 
-	data = std::to_string(to_serialize->id); //id
-	for (j = 0; j < data.size(); j++) {
-		result[i++] = data[j];
-	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //start
+		for (; j < to_serialize->type.size(); j++) { //type
+			result[i++] = to_serialize->type[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
 
-	data = std::to_string(to_serialize->port); //port
-	for (j = 0; j < data.size(); j++) {
-		result[i++] = data[j];
-	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+		data = std::to_string(to_serialize->id); //id
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
 
-	for (j = 0; j < to_serialize->addr.size(); j++) { //addr
-		result[i++] = to_serialize->addr[j];
-	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+		data = std::to_string(to_serialize->port); //port
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
 
-	for (j = 0; j < to_serialize->name.size(); j++) { //name
-		result[i++] = to_serialize->name[j];
-	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+		for (j = 0; j < to_serialize->addr.size(); j++) { //addr
+			result[i++] = to_serialize->addr[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
 
-	for (j = 0; j < to_serialize->message.size(); j++) { //message
-		result[i++] = to_serialize->message[j];
-	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+		for (j = 0; j < to_serialize->name.size(); j++) { //name
+			result[i++] = to_serialize->name[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
 
-	data = std::to_string(to_serialize->SERVER_MSG); // server_msg
-	for (j = 0; j < data.size(); j++) {
-		result[i++] = data[j];
+		for (j = 0; j < to_serialize->message.size(); j++) { //message
+			result[i++] = to_serialize->message[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+
+		data = std::to_string(to_serialize->SERVER_MSG); // server_msg
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+
+		data = std::to_string(to_serialize->MORE_BIT); // more_bit
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern);
+
+		data = std::to_string(to_serialize->OFFSET); // more_bit
+		for (j = 0; j < data.size(); j++) {
+			result[i++] = data[j];
+		}
+		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //finish
 	}
-	memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //finish
+	catch (...) {
+		throw "Error serialize()\n";
+	}
 }
-
 
 //asks user for status and friends
 void requestStatusAndFriends(bool* status, bool* update_friends) {
@@ -891,14 +970,18 @@ void closeClient() {
 	if (registered) {
 		my_MSG publish_status_off = protocol_manager->publish(false, false, false);
 
-		serialize(message, &publish_status_off);
-
 		std::wstring stemp = std::wstring(publish_status_off.addr.begin(), publish_status_off.addr.end());
 		LPCWSTR sw = stemp.c_str();
 
 		InetPton(AF_INET, sw, &si_send.sin_addr);
 		si_send.sin_addr.S_un.S_addr = inet_addr(publish_status_off.addr.c_str());
 		si_send.sin_port = htons(publish_status_off.port);
+
+		publish_status_off.name = client_info.MY_NAME;
+		publish_status_off.addr = client_info.MY_ADDRESS;
+		publish_status_off.port = client_info.MY_PORT;
+
+		serialize(message, &publish_status_off);
 
 		if (sendto(s, message, BUFLEN, 0, (struct sockaddr*) &si_send, slen) == SOCKET_ERROR)
 		{
@@ -909,7 +992,6 @@ void closeClient() {
 	for (int i = 0; i < friends_available.size(); i++) {
 
 		my_MSG bye = protocol_manager->bye(friends_available[i]);
-		serialize(message, &bye);
 
 		std::wstring stemp = std::wstring(bye.addr.begin(), bye.addr.end());
 		LPCWSTR sw = stemp.c_str();
@@ -917,6 +999,12 @@ void closeClient() {
 		InetPton(AF_INET, sw, &si_send.sin_addr);
 		si_send.sin_addr.S_un.S_addr = inet_addr(bye.addr.c_str());
 		si_send.sin_port = htons(bye.port);
+
+		bye.name = client_info.MY_NAME;
+		bye.addr = client_info.MY_ADDRESS;
+		bye.port = client_info.MY_PORT;
+
+		serialize(message, &bye);
 
 		if (sendto(s, message, BUFLEN, 0, (struct sockaddr*) &si_send, slen) == SOCKET_ERROR)
 		{
