@@ -76,7 +76,7 @@ private:
 
 	// returns unique id: time_since_epoch in milliseconds
 	int getId() {
-		return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+		return int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
 	}
 
 };

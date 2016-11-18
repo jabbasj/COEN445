@@ -162,7 +162,8 @@ void listener() {
 				}
 
 				if (success) {
-					std::async(registrationHandler, received_packet);
+					std::thread rh(registrationHandler, received_packet);
+					rh.detach();
 				}
 				else {
 					//send error to sender
@@ -184,7 +185,7 @@ void registrationHandler(my_MSG received_packet) {
 		if (findRequestHandler(received_packet)) { return; }
 
 		bool registered_client = false;
-		int i = 0;
+		size_t i = 0;
 		mut_clients.lock();
 		for (; i < my_status.clients_registered.size(); i++){
 			if (received_packet.name == my_status.clients_registered[i].name) {
@@ -197,6 +198,7 @@ void registrationHandler(my_MSG received_packet) {
 			&& !registered_client
 			&& my_status.clients_registered.size() >= 5)
 		{
+			//TODO: ensure IP:PORT is unique
 			my_MSG denied = protocol_manager->deny_register(received_packet);
 			send(denied);
 			mut_clients.unlock();
@@ -204,7 +206,8 @@ void registrationHandler(my_MSG received_packet) {
 		}
 
 		if (registered_client && received_packet.SERVER_MSG != 1) {
-			std::async(clientHandler, si_recv, received_packet);
+			std::thread ch(clientHandler, si_recv, received_packet);
+			ch.detach();
 			mut_clients.unlock();
 		}
 		else {
@@ -221,6 +224,7 @@ void registrationHandler(my_MSG received_packet) {
 
 				mut_clients.lock();
 				my_MSG is_registered = protocol_manager->is_registered_query_answer(received_packet);
+				//TODO: ensure IP:PORT is unique
 				mut_clients.unlock();
 
 				if (is_registered.type == "REGISTERED") {
@@ -261,7 +265,7 @@ void clientHandler(sockaddr_in sockaddr, my_MSG recv_msg) {
 
 			bool client_found = false;
 			mut_clients.lock();
-			for (int i = 0; i < my_status.clients_registered.size(); i++) {
+			for (size_t i = 0; i < my_status.clients_registered.size(); i++) {
 				if (my_status.clients_registered[i].name == recv_msg.name) {
 					to_send = protocol_manager->inform_resp(recv_msg, my_status.clients_registered[i]);
 					client_found = true;
@@ -297,7 +301,7 @@ bool findRequestHandler(my_MSG recv_msg) {
 
 		bool client_found = false;
 		mut_clients.lock();
-		for (int i = 0; i < my_status.clients_registered.size(); i++) {
+		for (size_t i = 0; i < my_status.clients_registered.size(); i++) {
 			if (my_status.clients_registered[i].name == recv_msg.message) {
 				to_send = protocol_manager->find_resp(recv_msg, my_status.clients_registered[i]);
 				client_found = true;
@@ -526,7 +530,7 @@ void loadClientsData() {
 				new_client.port = stoi(port);
 
 				std::string temp = "";
-				for (int i = 0; i < friends.size(); i++) {
+				for (size_t i = 0; i < friends.size(); i++) {
 					if (friends[i] != ',') {
 						temp += friends[i];
 					}
@@ -652,7 +656,7 @@ bool updateClientsData(my_MSG data) {
 
 	if (success) {
 		mut_clients.lock();
-		int i = 0;
+		size_t i = 0;
 		for (; i < my_status.clients_registered.size(); i++) {
 			if (my_status.clients_registered[i].name == data.name) {
 				my_status.clients_registered[i].status = client_status;
@@ -702,7 +706,7 @@ void saveClientsData(client_data client, bool update_friends) {
 					std::string friends = "friends:{";
 
 					if (update_friends) {
-						for (int i = 0; i < client.friends.size(); i++) {
+						for (size_t i = 0; i < client.friends.size(); i++) {
 							friends += client.friends[i] + ",";
 						}
 						friends = friends.substr(0, friends.find_last_of(',')) + "}";
@@ -738,14 +742,14 @@ void printClientsRegistered() {
 		mut_clients.lock();
 		std::cout << "\nPRINTING CLIENTS LIST:\n";
 		std::cout << "================================================================================\n";
-		for (int i = 0; i < my_status.clients_registered.size(); i++) {
+		for (size_t i = 0; i < my_status.clients_registered.size(); i++) {
 			client_data client = my_status.clients_registered[i];
 
 			std::cout << "name:{" << client.name << "}status:{" << client.status;
 			std::cout << "}addr:{" << client.addr << "}port:{" << client.port;
 			std::cout << "}friends:{";
 
-			for (int j = 0; j < client.friends.size(); j++) {
+			for (size_t j = 0; j < client.friends.size(); j++) {
 				std::cout << client.friends[j] << ", ";
 			}
 			std::cout << "}\n";
@@ -912,8 +916,8 @@ void serialize(char* result, my_MSG* to_serialize) {
 	try {
 		memset(result, '\0', BUFLEN);
 		char pattern[] = "^^^";
-		int i = 0;
-		int j = 0;
+		size_t i = 0;
+		size_t j = 0;
 		std::string data;
 
 		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //start

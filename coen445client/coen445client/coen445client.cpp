@@ -71,11 +71,13 @@ int _tmain(int argc, _TCHAR* argv[])
 		initializeConnection(); // Initialize winsock, create socket, load server list
 		getMyExternalIP();		// Not used
 
-		std::async(listener);
-		std::async(sender);
+		std::thread l(listener);
+		std::thread s(sender);
 		std::async(resend_old_messages);
 		std::async(erase_ignored_messages);
 		myInterface();
+		l.join();
+		s.join();
 	}
 	catch (std::exception e) {
 		printf(e.what());
@@ -245,7 +247,7 @@ void getMyInfo() {
 				std::cout << "My info at server (" << client_info.SERVER_ADDRESS << ":" << client_info.SERVER_PORT << "):\n";
 				std::cout << "Status: " << my_info.MY_NAME /*meh..*/ << "\nAddress: " << my_info.MY_ADDRESS << ":" << my_info.MY_PORT;
 				std::cout << "\nFriends: "; 
-				for (int j = 0; j < my_info.friends.size(); j++) {
+				for (size_t j = 0; j < my_info.friends.size(); j++) {
 					std::cout << my_info.friends[j].name << ", ";
 				}
 				std::cout << "\n================================================================================\n";
@@ -326,7 +328,7 @@ void getFriend() {
 					friend_data new_friend = protocol_manager->extract_friend_data(recv_msg, req_friend);
 					
 					bool friend_exists = false;
-					for (int j = 0; j < friends_available.size(); j++) {
+					for (size_t j = 0; j < friends_available.size(); j++) {
 						if (friends_available[j].name == req_friend) {
 							friend_exists = true; //update existing friend
 							friends_available[j].addr = new_friend.addr;
@@ -361,7 +363,7 @@ void getChatting() {
 	while (friends_available.size() > 0) {
 		std::cout << "\nChoose friend: (";
 
-		for (int i = 0; i < friends_available.size(); i++) {
+		for (size_t i = 0; i < friends_available.size(); i++) {
 			std::cout << i << ": " << friends_available[i].name << ", "; 
 		}
 		std::cout << ")........\n";
@@ -373,9 +375,9 @@ void getChatting() {
 				return;
 			}
 
-			int selection = stoi(input);
+			size_t selection = stoi(input);
 
-			if (selection > friends_available.size() - 1 || selection < 0) {
+			if ((selection > friends_available.size() - 1) || (selection < 0)) {
 				std::cout << "Wrong index!\n";
 				input = "";
 				continue;
@@ -511,7 +513,8 @@ void listener() {
 			printf("\nReceived packet from %s:%d\n", inet_ntoa(si_recv.sin_addr), ntohs(si_recv.sin_port));
 			printMsg(received_packet);
 
-			std::async(message_handler, received_packet);		
+			std::thread mh(message_handler, received_packet);
+			mh.detach();
 		}
 	}
 }
@@ -529,7 +532,8 @@ void message_handler(my_MSG recv_msg) {
 	}
 	else if (recv_msg.type == "CHAT") {
 
-		std::async(receive_chat_message,recv_msg);
+		std::thread rcm(receive_chat_message,recv_msg);
+		rcm.detach();
 
 		my_MSG reply = protocol_manager->ack(recv_msg);
 		send(reply);
@@ -654,6 +658,9 @@ void initializeConnection() {
 	int err = SOCKET_ERROR;
 
 	std::cout << "Binding...";
+	//TODO: Try random port??? & save it locally???
+	//Different port for chatting ???
+	//Let user enter port ???
 	do {
 		client.sin_port = htons(client_info.MY_PORT + i);
 
@@ -704,7 +711,7 @@ void send(my_MSG msg) {
 //locks mut_send, pushes multiple msgs into queue
 void send(std::vector<my_MSG> msgs) {
 	mut_send.lock();
-	for (int i = 0; i < msgs.size(); i++) {
+	for (size_t i = 0; i < msgs.size(); i++) {
 		temp.push_back(msgs[i]);
 	}
 	mut_send.unlock();
@@ -731,7 +738,7 @@ void resend_old_messages() {
 		if (timed_out.size() > 0) {
 			std::cout << "\nResending (" << timed_out.size() << ") following timed out messages:\n";
 		}
-		for (int i = 0; i < timed_out.size(); i++) {
+		for (size_t i = 0; i < timed_out.size(); i++) {
 			send(timed_out[i]);
 		}
 
@@ -829,8 +836,8 @@ void serialize(char* result, my_MSG* to_serialize) {
 	try {
 		memset(result, '\0', BUFLEN);
 		char pattern[] = "^^^";
-		int i = 0;
-		int j = 0;
+		size_t i = 0;
+		size_t j = 0;
 		std::string data;
 
 		memcpy(result + i, pattern, strlen(pattern)); i += strlen(pattern); //start
@@ -994,7 +1001,7 @@ void closeClient() {
 		}
 	}
 
-	for (int i = 0; i < friends_available.size(); i++) {
+	for (size_t i = 0; i < friends_available.size(); i++) {
 
 		my_MSG bye = protocol_manager->bye(friends_available[i]);
 

@@ -1,2 +1,1 @@
 name:server0,status:off,ip:192.168.2.41,port:8888
-name:server1,status:off,ip:192.168.2.41,port:8889

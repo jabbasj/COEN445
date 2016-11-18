@@ -1,5 +1,0 @@
-name:{jafar}status:{off}addr:{192.168.2.41}port:{10000}friends:{jafar,test,mike}
-name:{mike}status:{off}addr:{192.168.2.41}port:{10000}friends:{jafar,test}
-name:{abbasj}status:{off}addr:{192.168.2.41}port:{8888}friends:{jafar}
-name:{micheal}status:{off}addr:{192.168.2.41}port:{10000}friends:{}
-name:{1}status:{off}addr:{192.168.2.41}port:{10000}friends:{off}

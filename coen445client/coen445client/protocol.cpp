@@ -57,7 +57,7 @@ my_MSG protocol::publish(bool my_status, bool update_friends, bool expect_reply 
 
 	if (update_friends) {
 		std::string friends = "friends:{";
-		for (int i = 0; i < client_info->friends.size(); i++) {
+		for (size_t i = 0; i < client_info->friends.size(); i++) {
 			friends += client_info->friends[i].name + ",";
 		}
 		//status:{on/off}friends:{friend1,friend2,friendx,}
@@ -178,7 +178,7 @@ client_status protocol::extract_my_info(my_MSG msg) {
 
 	friend_data temp_friend;
 	std::string temp = "";
-	for (int i = 0; i < friends.size(); i++) {
+	for (size_t i = 0; i < friends.size(); i++) {
 		if (friends[i] != ',') {
 			temp += friends[i];
 		}
@@ -231,7 +231,7 @@ std::vector<my_MSG> protocol::send_fragmented_chat(friend_data to_friend, std::s
 		
 		std::vector<std::string> message_fragments;
 		std::string temp_str; temp_str += message[0];
-		for (int j = 1; j < message.size(); j++) {
+		for (size_t j = 1; j < message.size(); j++) {
 			temp_str += message[j];
 			if ((j % MAX_MESSAGE_LENGTH) == 0) {
 				message_fragments.push_back(temp_str);
@@ -242,7 +242,7 @@ std::vector<my_MSG> protocol::send_fragmented_chat(friend_data to_friend, std::s
 				break;
 			}
 		}
-		for (int k = 0; k < message_fragments.size(); k++) {
+		for (size_t k = 0; k < message_fragments.size(); k++) {
 			temp_msg.MORE_BIT = 1;
 			temp_msg.OFFSET = k;
 			temp_msg.message = message_fragments[k];
@@ -252,7 +252,7 @@ std::vector<my_MSG> protocol::send_fragmented_chat(friend_data to_friend, std::s
 
 		messages.back().MORE_BIT = messages.size();
 
-		for (int i = 0; i < messages.size(); i++) {
+		for (size_t i = 0; i < messages.size(); i++) {
 			new_msg(messages[i]);
 		}
 	}
@@ -411,7 +411,7 @@ my_MSG protocol::replied_to(my_MSG msg) {
 	my_MSG reply_to = msg;
 	reply_to.id = 0;
 	mut_msgs.lock();
-	for (int i = 0; i < messages_pending_reply.size(); i++) {
+	for (size_t i = 0; i < messages_pending_reply.size(); i++) {
 		if (msg.id == messages_pending_reply[i].id) {
 
 			reply_to = messages_pending_reply[i];

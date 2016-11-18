@@ -66,7 +66,7 @@ my_MSG protocol::inform_resp(my_MSG msg, client_data client) {
 	answer.addr = msg.addr;
 	answer.port = msg.port;
 	answer.message = "status:{" + client.status + "}addr:{" + client.addr + "}port:{" + std::to_string(client.port) + "}friends:{";
-	for (int i = 0; i < client.friends.size(); i++) {
+	for (size_t i = 0; i < client.friends.size(); i++) {
 		answer.message += client.friends[i] + ",";
 	}
 	answer.message += "}";
@@ -87,7 +87,7 @@ my_MSG protocol::find_resp(my_MSG msg, client_data client) {
 	answer.SERVER_MSG = 1;
 
 	bool on_friends_list = false;
-	for (int i = 0; i < client.friends.size(); i++) {
+	for (size_t i = 0; i < client.friends.size(); i++) {
 		if (client.friends[i] == msg.name) {
 			on_friends_list = true;
 			break;
@@ -142,7 +142,7 @@ my_MSG protocol::is_registered_query_answer(my_MSG msg) {
 
 	if (msg.message == "no") {
 		bool registered = false;
-		for (int i = 0; i < server_info->clients_registered.size(); i++) {
+		for (size_t i = 0; i < server_info->clients_registered.size(); i++) {
 			if (msg.name == server_info->clients_registered[i].name) {
 				registered = true;
 				break;
@@ -163,7 +163,7 @@ my_MSG protocol::replied_to(my_MSG msg) {
 	my_MSG reply_to = msg;
 	reply_to.id = 0;
 	mut_msgs.lock();
-	for (int i = 0; i < messages_pending_reply.size(); i++) {
+	for (size_t i = 0; i < messages_pending_reply.size(); i++) {
 		if (msg.id == messages_pending_reply[i].id) {
 
 			reply_to = messages_pending_reply[i];
