@@ -354,7 +354,6 @@ void getFriend() {
 void getChatting() {
 
 	if (!registered) { std::cout << "\nERROR: Must register first!\n"; return; };
-	if (!published) { std::cout << "\nERROR: Must publish first!\n"; return; };
 	if (friends_available.size() == 0) { std::cout << "\nDiscover friends first!\n"; return; }
 	std::cout << "Entered Chat Mode...";
 	chat_mode = true;

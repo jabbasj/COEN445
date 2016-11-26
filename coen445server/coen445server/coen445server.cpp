@@ -26,7 +26,7 @@ void loadServersList();
 void closeServer();
 void loadClientsData();
 void registerClient(my_MSG);
-bool updateClientsData(my_MSG);
+bool updateClientsData(my_MSG, bool update_ip_port_only = false);
 void saveClientsData(client_data, bool);
 void registrationHandler(my_MSG);
 bool findRequestHandler(my_MSG);
@@ -182,7 +182,9 @@ void listener() {
 void registrationHandler(my_MSG received_packet) {
 	try {
 		//check if it's related to findReq, which doesn't require registration
-		if (findRequestHandler(received_packet)) { return; }
+		if (findRequestHandler(received_packet)) { 
+			return; 
+		}
 
 		bool registered_client = false;
 		size_t i = 0;
@@ -198,7 +200,6 @@ void registrationHandler(my_MSG received_packet) {
 			&& !registered_client
 			&& my_status.clients_registered.size() >= 5)
 		{
-			//TODO: ensure IP:PORT is unique
 			my_MSG denied = protocol_manager->deny_register(received_packet);
 			send(denied);
 			mut_clients.unlock();
@@ -250,6 +251,7 @@ void clientHandler(sockaddr_in sockaddr, my_MSG recv_msg) {
 
 		if (recv_msg.type == "REGISTER") {
 			to_send = protocol_manager->register_client(recv_msg);
+			updateClientsData(recv_msg, true);
 		}
 		else if (recv_msg.type == "PUBLISH") {
 			success = updateClientsData(recv_msg);
@@ -596,56 +598,61 @@ void registerClient(my_MSG data) {
 //update client_registered and client_online
 //call saveClientData
 //message field format: {ON/OFF}{friend1,friend2,friendx,}
-bool updateClientsData(my_MSG data) {
+bool updateClientsData(my_MSG data, bool update_ip_port_only /*=false*/) {
 
-	std::string client_status = "";
+	std::string client_status = "off";
 	int			client_port = data.port;
 	std::string client_addr = data.addr;
 	std::vector	<std::string> client_friends;
-	bool update_friends = true;
+	bool update_friends = false;
 	bool success = false;
 
 	try {
-		std::regex r("status:\\{(.*)\\}friends:\\{(.*)\\}");
-		std::smatch match_result;
-		std::regex_match(data.message, match_result, r);
 
-		if (client_port < 0) { return false; }
-		if (client_addr == "") { return false; }
+		if (!update_ip_port_only) {
 
-		if (!match_result.empty() && match_result[0].length() > 0 && match_result.size() == 3) {
-			client_status = match_result[1];
+			std::regex r("status:\\{(.*)\\}friends:\\{(.*)\\}");
+			std::smatch match_result;
+			std::regex_match(data.message, match_result, r);
 
-			if (client_status != "on" && client_status != "off") {
-				return false;
-			}
+			if (client_port < 0) { return false; }
+			if (client_addr == "") { return false; }
 
-			std::string temp = match_result[2];
-
-			std::string delimiter = ",";
-			size_t pos = 0;
-			std::string a_friend;
-			while ((pos = temp.find(delimiter)) != std::string::npos) {
-				a_friend = temp.substr(0, pos);
-				client_friends.push_back(a_friend);
-				temp.erase(0, pos + delimiter.length());
-			}
-			success = true;
-
-		}
-		else {
-			std::regex rr("status:\\{(.*)\\}");
-			std::smatch status_match;
-			std::regex_match(data.message, status_match, rr);
-
-			if (!status_match.empty() && status_match[0].length() > 0 && status_match.size() == 2) {
-				client_status = status_match[1];
+			if (!match_result.empty() && match_result[0].length() > 0 && match_result.size() == 3) {
+				client_status = match_result[1];
 
 				if (client_status != "on" && client_status != "off") {
 					return false;
 				}
-				update_friends = false;
+
+				std::string temp = match_result[2];
+
+				std::string delimiter = ",";
+				size_t pos = 0;
+				std::string a_friend;
+				while ((pos = temp.find(delimiter)) != std::string::npos) {
+					a_friend = temp.substr(0, pos);
+					client_friends.push_back(a_friend);
+					temp.erase(0, pos + delimiter.length());
+				}
 				success = true;
+				update_friends = true;
+
+			}
+			else {
+				std::regex rr("status:\\{(.*)\\}");
+				std::smatch status_match;
+				std::regex_match(data.message, status_match, rr);
+
+				if (!status_match.empty() && status_match[0].length() > 0 && status_match.size() == 2) {
+					client_status = status_match[1];
+
+					if (client_status != "on" && client_status != "off") {
+						return false;
+					}
+					update_friends = false;
+					success = true;
+				}
 			}
 		}
 	}
@@ -654,7 +661,7 @@ bool updateClientsData(my_MSG data) {
 		return false;
 	}
 
-	if (success) {
+	if (success || update_ip_port_only) {
 		mut_clients.lock();
 		size_t i = 0;
 		for (; i < my_status.clients_registered.size(); i++) {
@@ -662,7 +669,7 @@ bool updateClientsData(my_MSG data) {
 				my_status.clients_registered[i].status = client_status;
 				my_status.clients_registered[i].port = client_port;
 				my_status.clients_registered[i].addr = client_addr;
-				if (update_friends) {
+				if (update_friends && !update_ip_port_only) {
 					my_status.clients_registered[i].friends = client_friends;
 				}
 				break;
@@ -778,7 +785,7 @@ void closeServer() {
 
 			if (line.size() > 0) {
 
-				if (my_status.MY_PORT == std::stoi(line.substr(line.find("port:") + std::strlen("port:"), -1))) {
+				if (line.find(my_status.MY_ADDRESS) != std::string::npos && my_status.MY_PORT == std::stoi(line.substr(line.find("port:") + std::strlen("port:"), -1))) {
 					line.replace(line.find("on"), std::strlen("on"), "off");
 				}
 

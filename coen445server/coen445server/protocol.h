@@ -67,6 +67,6 @@ private:
 	my_MSG replied_to(my_MSG);
 
 	int getId() {
-		return int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+		return abs(int(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()));
 	}
 };
